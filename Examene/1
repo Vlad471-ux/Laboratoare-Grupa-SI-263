@@ -1,0 +1,193 @@
+"""Trusa de unelte HTTP - funcții care vorbesc cu un server web prin requests."""
+
+import requests
+
+BASE = "https://httpbin.org"
+PATHS = ["/get", "/redirect/2", "/delay/1", "/status/404", "/delay/5"]
+TIMEOUT = 10  # secunde
+
+
+# Partea 1: parametri în URL
+def search(params):
+    """GET pe /get cu parametri în URL; returnează parametrii primiți de server."""
+    try:
+        r = requests.get(BASE + "/get", params=params, timeout=TIMEOUT)
+        return r.json()["args"]
+    except requests.RequestException as e:
+        print("search a eșuat:", e)
+        return None
+
+
+def search_url(params):
+    """Returnează adresa completă construită de requests, cu tot cu parametri."""
+    try:
+        r = requests.get(BASE + "/get", params=params, timeout=TIMEOUT)
+        return r.url
+    except requests.RequestException as e:
+        print("search_url a eșuat:", e)
+        return None
+
+
+# Partea 2: anteturi
+def fetch_with_agent(agent):
+    """GET pe /headers cu User-Agent=agent; returnează User-Agent-ul văzut de server."""
+    try:
+        r = requests.get(BASE + "/headers", headers={"User-Agent": agent}, timeout=TIMEOUT)
+        return r.json()["headers"]["User-Agent"]
+    except requests.RequestException as e:
+        print("fetch_with_agent a eșuat:", e)
+        return None
+
+
+def default_agent():
+    """Returnează User-Agent-ul trimis de requests când nu setezi nimic."""
+    try:
+        r = requests.get(BASE + "/headers", timeout=TIMEOUT)
+        return r.json()["headers"]["User-Agent"]
+    except requests.RequestException as e:
+        print("default_agent a eșuat:", e)
+        return None
+
+
+# Partea 3: trimiterea datelor
+def post_json(data):
+    """POST cu datele ca JSON pe /post; returnează JSON-ul primit de server."""
+    try:
+        r = requests.post(BASE + "/post", json=data, timeout=TIMEOUT)  # corp JSON
+        return r.json()["json"]
+    except requests.RequestException as e:
+        print("post_json a eșuat:", e)
+        return None
+
+
+def post_form(data):
+    """POST cu datele ca formular pe /post; returnează formularul primit de server."""
+    try:
+        r = requests.post(BASE + "/post", data=data, timeout=TIMEOUT)  # câmpuri de formular
+        return r.json()["form"]
+    except requests.RequestException as e:
+        print("post_form a eșuat:", e)
+        return None
+
+
+# Partea 4: coduri de stare
+def describe_status(code):
+    """GET pe /status/<code>; returnează 'succes', 'eroare client' sau 'eroare server'."""
+    try:
+        r = requests.get(f"{BASE}/status/{code}", timeout=TIMEOUT)
+    except requests.RequestException as e:
+        print("describe_status a eșuat:", e)
+        return None
+    if 200 <= r.status_code < 300:
+        return "succes"
+    if 400 <= r.status_code < 500:
+        return "eroare client"
+    if 500 <= r.status_code < 600:
+        return "eroare server"
+    return "alt cod"
+
+
+def is_ok(code):
+    """GET pe /status/<code>; returnează True dacă cererea a reușit, altfel False."""
+    try:
+        r = requests.get(f"{BASE}/status/{code}", timeout=TIMEOUT)
+        r.raise_for_status()  # eroare la 4xx/5xx
+        return True
+    except requests.HTTPError:
+        return False
+    except requests.RequestException as e:
+        print("is_ok a eșuat:", e)
+        return False
+
+
+# Partea 5: redirecționări
+def count_redirects(n):
+    """GET pe /redirect/<n>; returnează câte redirecționări au fost urmate."""
+    try:
+        r = requests.get(f"{BASE}/redirect/{n}", timeout=TIMEOUT)
+        return len(r.history)  # un răspuns pentru fiecare redirecționare
+    except requests.RequestException as e:
+        print("count_redirects a eșuat:", e)
+        return None
+
+
+def final_url(n):
+    """GET pe /redirect/<n>; returnează adresa la care ai ajuns."""
+    try:
+        r = requests.get(f"{BASE}/redirect/{n}", timeout=TIMEOUT)
+        return r.url
+    except requests.RequestException as e:
+        print("final_url a eșuat:", e)
+        return None
+
+
+def first_hop(n):
+    """GET pe /redirect/<n> FĂRĂ a urma redirecționarea; returnează antetul Location."""
+    try:
+        r = requests.get(f"{BASE}/redirect/{n}", allow_redirects=False, timeout=TIMEOUT)
+        return r.headers.get("Location")
+    except requests.RequestException as e:
+        print("first_hop a eșuat:", e)
+        return None
+
+
+# Partea 6: sesiuni și cookie-uri
+def cookie_demo(name, value):
+    """Setează un cookie, apoi citește cookie-urile înapoi folosind O SINGURĂ sesiune."""
+    try:
+        with requests.Session() as s:  # sesiunea păstrează cookie-urile
+            s.get(BASE + "/cookies/set", params={name: value}, timeout=TIMEOUT)
+            r = s.get(BASE + "/cookies", timeout=TIMEOUT)
+            return r.json()["cookies"]
+    except requests.RequestException as e:
+        print("cookie_demo a eșuat:", e)
+        return None
+
+
+def no_session_demo(name, value):
+    """Același lucru cu apeluri simple requests.get; returnează cookie-urile văzute de server."""
+    try:
+        requests.get(BASE + "/cookies/set", params={name: value}, timeout=TIMEOUT)
+        r = requests.get(BASE + "/cookies", timeout=TIMEOUT)
+        return r.json()["cookies"]
+    except requests.RequestException as e:
+        print("no_session_demo a eșuat:", e)
+        return None
+
+
+# Partea 7: raportul final
+def report(path):
+    """Returnează un dicționar care descrie pagina de la BASE + path."""
+    try:
+        r = requests.get(BASE + path, timeout=3)
+    except requests.Timeout:
+        return {"status": None, "error": "timeout după 3 secunde"}
+    except requests.RequestException as e:
+        return {"status": None, "error": type(e).__name__}
+
+    # durata totală, inclusiv pașii de redirecționare
+    seconds = r.elapsed.total_seconds() + sum(h.elapsed.total_seconds() for h in r.history)
+    return {
+        "status": r.status_code,
+        "final_url": r.url,
+        "redirects": len(r.history),
+        "seconds": round(seconds, 2),
+        "content_type": r.headers.get("Content-Type"),
+    }
+
+
+def main():
+    results = []
+    for path in PATHS:
+        info = report(path)
+        info["path"] = path
+        results.append(info)
+
+    ok = [d for d in results if d["status"] == 200]
+    ok.sort(key=lambda d: d["seconds"], reverse=True)  # cea mai lentă prima
+
+    for d in ok:
+        print(f"{d['path']} -> {d['status']}, {d['seconds']:.2f} secunde")
+
+    failed = len(results) - len(ok)
+    print(f"Reușite: {len(ok)} | Eșuate: {failed}")
